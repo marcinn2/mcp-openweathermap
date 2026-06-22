@@ -31,7 +31,7 @@ spec:
           # Placeholder image — build and push your own, e.g.:
           #   docker build -t ghcr.io/<owner>/mcp-openweathermap:latest .
           #   docker push   ghcr.io/<owner>/mcp-openweathermap:latest
-          image: ghcr.io/robertn702/mcp-openweathermap:latest
+          image: ghcr.io/marcinn2/mcp-openweathermap:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

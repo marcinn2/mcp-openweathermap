@@ -2,10 +2,6 @@
 
 A Model Context Protocol (MCP) server that provides comprehensive weather data and forecasts through the OpenWeatherMap API. This server enables AI assistants to access real-time weather information, forecasts, air quality data, and location services.
 
-<a href="https://glama.ai/mcp/servers/@robertn702/mcp-openweathermap">
-  <img width="380" height="200" src="https://glama.ai/mcp/servers/@robertn702/mcp-openweathermap/badge" alt="OpenWeatherMap Server MCP server" />
-</a>
-
 ## Features
 
 ### Weather Tools
@@ -23,6 +19,12 @@ A Model Context Protocol (MCP) server that provides comprehensive weather data a
 - **Air Pollution** - Historical and forecast air quality data
 - **Geocoding** - Convert location names to coordinates
 
+### Server Capabilities
+- **Prompts** - User-invokable templates (e.g. `weather-briefing`, `trip-planner`) that orchestrate the tools
+- **Dual transport** - stdio and Streamable HTTP (plus a legacy SSE compatibility endpoint)
+- **HTTP security** - Bearer access-token authentication (`MCP_AUTH_TOKEN`) and configurable CORS
+- **Container-ready** - Dockerfile plus Docker Compose and Kubernetes examples in [`docs/`](docs/README.md)
+
 ## Installation
 
 ### Prerequisites
@@ -33,7 +35,7 @@ A Model Context Protocol (MCP) server that provides comprehensive weather data a
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/robertn702/mcp-openweathermap.git
+git clone https://github.com/marcinn2/mcp-openweathermap.git
 cd mcp-openweathermap
 ```
 
@@ -197,6 +199,28 @@ connect. By default all origins are allowed (`*`); restrict them with the
 `Content-Type`, `Mcp-Session-Id`, `Mcp-Protocol-Version`, and `Last-Event-ID`
 request headers are allowed, and `Mcp-Session-Id` is exposed to clients.
 
+## Deployment
+
+Ready-to-use deployment examples live in [`docs/`](docs/README.md):
+
+- **Docker Compose** — [`docs/docker-compose.yml`](docs/docker-compose.yml)
+- **Kubernetes** — [`docs/kubernetes/`](docs/kubernetes/) (namespace, secret, configmap, deployment, service, ingress)
+
+### Docker
+
+```bash
+docker build -t mcp-openweathermap .
+docker run --rm -p 3000:3000 \
+  -e OPENWEATHER_API_KEY=your-api-key \
+  -e MCP_AUTH_TOKEN=your-access-token \
+  mcp-openweathermap
+```
+
+The image defaults to `MCP_TRANSPORT=httpStream`, `PORT=3000`, `MCP_ENDPOINT=/mcp`,
+and binds `0.0.0.0` so it is reachable inside containers. See the
+[deployment guide](docs/README.md) for Compose and Kubernetes details, including
+scaling (sticky sessions) and security notes.
+
 ## Contributing
 
 1. Fork the repository
@@ -214,4 +238,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [OpenWeatherMap API Documentation](https://openweathermap.org/api)
 - [openweather-api-node Library](https://github.com/loloToster/openweather-api-node) - The underlying API client
 - [Model Context Protocol Documentation](https://modelcontextprotocol.io)
-- [Issue Tracker](https://github.com/robertn702/mcp-openweathermap/issues)
+- [Issue Tracker](https://github.com/marcinn2/mcp-openweathermap/issues)
