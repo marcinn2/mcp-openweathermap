@@ -1,4 +1,5 @@
 import type { SessionData } from "./types.js";
+import { resolveApiKey } from "./api-key.js";
 
 // Global session data for stdio transport
 let stdioSession: SessionData | null = null;
@@ -8,19 +9,7 @@ let stdioSession: SessionData | null = null;
  * This is called once at server startup
  */
 export async function initializeStdioAuth(): Promise<void> {
-  const apiKey = process.env.OPENWEATHER_API_KEY;
-
-  if (!apiKey) {
-    throw new Error(
-      "OPENWEATHER_API_KEY environment variable is required for stdio transport. " +
-      "Please set it before starting the server."
-    );
-  }
-
-  // Validate API key format (basic validation)
-  if (apiKey.length < 32) {
-    throw new Error("Invalid OPENWEATHER_API_KEY format. Please check your API key.");
-  }
+  const apiKey = resolveApiKey("stdio transport");
 
   // Store session data
   stdioSession = {

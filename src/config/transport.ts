@@ -4,8 +4,9 @@ import { z } from "zod";
 const transportConfigSchema = z.object({
   transportType: z.enum(["stdio", "httpStream"]),
   httpStream: z.object({
-    port: z.number(),
-    endpoint: z.string(),
+    host: z.string().min(1),
+    port: z.number().int().positive(),
+    endpoint: z.string().startsWith("/"),
   }).optional(),
 });
 
@@ -20,11 +21,16 @@ export function getTransportConfig(): TransportConfig {
 
   if (transportType === "httpStream") {
     const port = parseInt(process.env.PORT || "3000", 10);
-    const endpoint = process.env.MCP_ENDPOINT || "/mcp";
+    const rawEndpoint = process.env.MCP_ENDPOINT || "/mcp";
+    const endpoint = rawEndpoint.startsWith("/") ? rawEndpoint : `/${rawEndpoint}`;
+    // Default to all interfaces so the server is reachable inside containers
+    // (Docker port forwarding, Kubernetes probes). Override with HOST.
+    const host = process.env.HOST || "0.0.0.0";
 
     const config: TransportConfig = {
       transportType: "httpStream",
       httpStream: {
+        host,
         port,
         endpoint,
       },

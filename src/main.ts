@@ -1,8 +1,12 @@
 #!/usr/bin/env node
+import { readFileSync } from "node:fs";
 import { FastMCP } from "fastmcp";
 import { getTransportConfig } from "./config/transport.js";
+import { getCorsOptions } from "./config/cors.js";
 import { httpStreamAuthenticator } from "./auth/http.js";
 import { initializeStdioAuth } from "./auth/stdio.js";
+import { resolveApiKey } from "./auth/api-key.js";
+import { isAuthEnabled } from "./auth/token.js";
 import { getOpenWeatherClient, configureClientForLocation } from "./utils/client-resolver.js";
 import { formatCurrentWeather, formatWeatherForecast, formatHourlyForecast } from "./utils/weather-formatter.js";
 import type { SessionData } from "./auth/types.js";
@@ -23,10 +27,15 @@ import {
 // Get transport configuration with validation
 const transportConfig = getTransportConfig();
 
+// Read the version from package.json so the server version always stays in sync
+// with the published package (resolves relative to dist/main.js at runtime).
+const { version } = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf-8")
+) as { version: string };
 
 const server = new FastMCP({
   name: "OpenWeatherMap MCP Server",
-  version: "0.1.3",
+  version: version as `${number}.${number}.${number}`,
   instructions: `
 This MCP server provides access to the OpenWeatherMap API for weather data and forecasts.
 
@@ -240,9 +249,13 @@ server.addTool({
       });
       
       // Format the response
+      const first = hourlyData[0];
+      const locationLabel = first
+        ? `${first.lat.toFixed(4)}, ${first.lon.toFixed(4)}`
+        : args.location;
       const formattedForecast = formatHourlyForecast(
-        hourlyData, 
-        `${hourlyData[0]?.lat?.toFixed(4)}, ${hourlyData[0]?.lon?.toFixed(4)}` || args.location,
+        hourlyData,
+        locationLabel,
         args.units
       );
       
@@ -837,7 +850,13 @@ server.addTool({
           tags: alert.tags
         })) || []
       };
-      
+
+      // Honor the `exclude` parameter by dropping requested sections from the
+      // response (the upstream OneCall client always fetches every section).
+      for (const section of args.exclude ?? []) {
+        delete (formattedData as Record<string, unknown>)[section];
+      }
+
       return {
         content: [
           {
@@ -847,7 +866,7 @@ server.addTool({
         ]
       };
     } catch (error) {
-      log.error("Failed to get OneCall weather", { 
+      log.error("Failed to get OneCall weather", {
         error: error instanceof Error ? error.message : 'Unknown error' 
       });
       
@@ -1083,13 +1102,14 @@ server.addResource({
 
 ## Overview
 This MCP server provides access to the OpenWeatherMap API for weather data and forecasts.
-Authentication is handled server-side using environment variables.
 
 ## Authentication
-The server authenticates to OpenWeatherMap using environment variables:
-- \`OPENWEATHER_API_KEY\`: Your OpenWeatherMap API key (required)
-
-Authentication happens automatically on server startup. No client-side authentication is required.
+Two separate credentials are used:
+1. **OpenWeatherMap API key** (\`OPENWEATHER_API_KEY\`): the server's upstream
+   credential for calling OpenWeatherMap. Always server-side; never sent by clients.
+2. **Access token** (\`MCP_AUTH_TOKEN\`, HTTP stream transport): when set, every
+   request must present a matching \`Authorization: Bearer <token>\`. Unrelated to
+   the weather API. Unset = open endpoint. A missing/invalid token returns 401.
 
 ## Available Tools
 
@@ -1142,13 +1162,132 @@ Authentication happens automatically on server startup. No client-side authentic
 - Network errors are handled gracefully with descriptive messages
 - Server maintains session state across tool calls
 
+## Available Prompts
+User-invokable templates that combine the tools above:
+- **weather-briefing**: current conditions, the next few days, and any alerts
+- **what-to-wear**: clothing recommendation from current + hourly conditions
+- **air-quality-check**: air quality with practical health guidance
+- **trip-planner**: multi-day outlook to plan a trip to a destination
+- **severe-weather-watch**: alerts plus the detailed OneCall picture
+
 ## Environment Setup
-Required environment variables:
-- \`OPENWEATHER_API_KEY\`: OpenWeatherMap API key (used for both API access and HTTP stream authentication)
-- \`PORT\`: Server port (default: 3000, for HTTP transport only)
+Environment variables:
+- \`OPENWEATHER_API_KEY\`: OpenWeatherMap API key — the server's upstream credential (required for both transports)
+- \`MCP_AUTH_TOKEN\`: Bearer access token(s) for HTTP transport, comma-separated (unset = open endpoint)
+- \`MCP_TRANSPORT\`: \`stdio\` (default) or \`httpStream\`
+- \`HOST\`: Bind address (default: 0.0.0.0, HTTP transport only)
+- \`PORT\`: Server port (default: 3000, HTTP transport only)
+- \`MCP_ENDPOINT\`: Streamable HTTP path (default: /mcp, HTTP transport only)
+- \`CORS_ORIGIN\`: Comma-separated allowed origins for HTTP transport (default: \`*\`)
       `.trim()
     };
   }
+});
+
+// ---------------------------------------------------------------------------
+// Prompts
+//
+// Prompts are user-controlled templates (typically surfaced as slash commands)
+// that expand into an instruction for the assistant. They demonstrate how to
+// combine this server's tools to answer common weather questions. Each `load`
+// returns the message text the assistant should act on.
+// ---------------------------------------------------------------------------
+
+const unitsArgument = {
+  name: "units",
+  description: "Temperature units: metric, imperial, or standard",
+  enum: ["metric", "imperial", "standard"],
+  required: false,
+};
+
+const locationArgument = {
+  name: "location",
+  description: "City name (e.g. 'Berlin') or coordinates (e.g. '52.52,13.405')",
+  required: true,
+};
+
+// Daily weather briefing: current conditions + short forecast + any alerts.
+server.addPrompt({
+  name: "weather-briefing",
+  description: "Concise weather briefing for a location: now, the next few days, and any active alerts",
+  arguments: [locationArgument, unitsArgument],
+  load: async ({ location, units }) => {
+    const unitsClause = units ? ` Use ${units} units.` : "";
+    return [
+      `Give me a weather briefing for "${location}".${unitsClause}`,
+      "Call get-current-weather for the conditions right now, get-weather-forecast",
+      "for the next few days, and get-weather-alerts for any active warnings.",
+      "Summarize in a short paragraph: current conditions, the trend over the next",
+      "3 days, and call out any alerts (or note there are none).",
+    ].join(" ");
+  },
+});
+
+// What to wear: turn current + hourly conditions into a clothing recommendation.
+server.addPrompt({
+  name: "what-to-wear",
+  description: "Clothing recommendation based on current and upcoming conditions for a location",
+  arguments: [locationArgument, unitsArgument],
+  load: async ({ location, units }) => {
+    const unitsClause = units ? ` Report temperatures in ${units} units.` : "";
+    return [
+      `What should I wear today in "${location}"?${unitsClause}`,
+      "Use get-current-weather and get-hourly-forecast (next ~12 hours), then",
+      "recommend clothing and whether to bring an umbrella or sun protection,",
+      "explaining the key factors (temperature, wind, rain chance).",
+    ].join(" ");
+  },
+});
+
+// Air quality check: pollution levels plus practical health guidance.
+server.addPrompt({
+  name: "air-quality-check",
+  description: "Current air quality for a location with practical health guidance",
+  arguments: [locationArgument],
+  load: async ({ location }) =>
+    [
+      `Check the air quality in "${location}".`,
+      "Call get-current-air-pollution (if it is a place name rather than",
+      "coordinates, use geocode-location first to resolve it). Report the AQI and",
+      "the main pollutants, then give practical guidance for outdoor activity and",
+      "for sensitive groups.",
+    ].join(" "),
+});
+
+// Trip planner: multi-day outlook for a destination.
+server.addPrompt({
+  name: "trip-planner",
+  description: "Multi-day weather outlook to help plan a trip to a destination",
+  arguments: [
+    { name: "destination", description: "Destination city or place name", required: true },
+    { name: "days", description: "Number of days to plan for (1-8, default 5)", required: false },
+    unitsArgument,
+  ],
+  load: async ({ destination, days, units }) => {
+    const dayCount = days ?? "5";
+    const unitsClause = units ? ` Use ${units} units.` : "";
+    return [
+      `Help me plan a trip to "${destination}" over the next ${dayCount} days.${unitsClause}`,
+      "Use geocode-location to resolve the destination, then get-daily-forecast for",
+      "the daily outlook and get-weather-alerts for warnings. Recommend the best",
+      "days for outdoor plans and flag any days to avoid.",
+    ].join(" ");
+  },
+});
+
+// Severe weather watch: alerts plus the comprehensive OneCall picture.
+server.addPrompt({
+  name: "severe-weather-watch",
+  description: "Check for severe weather and active alerts for a location",
+  arguments: [locationArgument],
+  load: async ({ location }) =>
+    [
+      `Is there any severe weather expected for "${location}"?`,
+      "Use get-weather-alerts for active warnings and get-onecall-weather for the",
+      "detailed current/hourly/daily picture (resolve coordinates with",
+      "geocode-location first if needed). Summarize any threats, their timing, and",
+      "severity, or confirm conditions look calm.",
+    ].join(" "),
 });
 
 // Start server with dynamic transport configuration
@@ -1159,19 +1298,33 @@ async function startServer() {
   }
 
   if (transportConfig.transportType === "httpStream") {
+    // The OpenWeatherMap API key is always server-side for HTTP — fail fast if missing.
+    resolveApiKey("HTTP stream transport");
+
+    // Warn if the endpoint is unauthenticated.
+    if (!isAuthEnabled()) {
+      console.warn(
+        "WARNING: MCP_AUTH_TOKEN is not set — the HTTP endpoint is unauthenticated (open access)."
+      );
+    }
+
     // Log startup information
-    console.log(`HTTP Stream configuration: port=${transportConfig.httpStream?.port}, endpoint=${transportConfig.httpStream?.endpoint}`);
+    console.log(`HTTP Stream configuration: host=${transportConfig.httpStream?.host}, port=${transportConfig.httpStream?.port}, endpoint=${transportConfig.httpStream?.endpoint}`);
 
     await server.start({
       transportType: "httpStream",
       httpStream: {
-        port: transportConfig.httpStream!.port
+        host: transportConfig.httpStream!.host,
+        port: transportConfig.httpStream!.port,
+        endpoint: transportConfig.httpStream!.endpoint as `/${string}`,
+        cors: getCorsOptions()
       }
     });
 
-    console.log(`OpenWeatherMap MCP Server running on port ${transportConfig.httpStream!.port}`);
+    console.log(`OpenWeatherMap MCP Server running on ${transportConfig.httpStream!.host}:${transportConfig.httpStream!.port}`);
     console.log(`HTTP endpoint: ${transportConfig.httpStream!.endpoint}`);
-    console.log("Authentication: OPENWEATHER_API_KEY environment variable");
+    console.log(`Authentication: ${isAuthEnabled() ? "Bearer access token (MCP_AUTH_TOKEN)" : "disabled (open access)"}`);
+    console.log(`CORS origin: ${process.env.CORS_ORIGIN || "*"}`);
   } else {
     await server.start({
       transportType: "stdio"

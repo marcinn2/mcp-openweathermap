@@ -43,27 +43,33 @@ This is an MCP (Model Context Protocol) server that provides weather data integr
 
 The server supports dual transport modes:
 - **Stdio Transport** (default): Uses `OPENWEATHER_API_KEY` environment variable
-- **HTTP Stream Transport**: Uses Bearer token authentication
+- **HTTP Stream Transport**: Two separate credentials. The **access token** (`MCP_AUTH_TOKEN`, verified in `src/auth/token.ts`) gates client access via `Authorization: Bearer <token>` — a missing/invalid token yields 401, and an unset `MCP_AUTH_TOKEN` disables token auth (open endpoint). The **OpenWeatherMap API key** (`OPENWEATHER_API_KEY`) is always server-side and used for upstream calls. CORS is configured in `src/config/cors.ts` (origins via `CORS_ORIGIN`, default `*`).
 
 Transport selection is automatic based on environment detection in `src/config/transport.ts`.
 
-### Weather Tools Available
+In `httpStream` mode the server exposes three endpoints (via FastMCP/mcp-proxy):
+- `MCP_ENDPOINT` (default `/mcp`) — Streamable HTTP transport (`GET`/`POST`, SSE-streamed responses)
+- `/sse` — legacy HTTP+SSE transport, auto-mounted at a fixed path (not affected by `MCP_ENDPOINT`)
+- `/health` — health check
 
-11 weather tools covering current conditions, forecasts (hourly/daily/minutely), air quality, weather alerts, and location services. All tools use consistent error handling and session-based API client caching.
+`MCP_ENDPOINT` only relocates the Streamable HTTP endpoint; `/sse` and `/health` are fixed. The bind address comes from `HOST` (default `0.0.0.0`); FastMCP itself defaults to loopback-only `localhost`, which would break container port forwarding and Kubernetes probes, so the default is overridden in `src/config/transport.ts`.
+
+### Capabilities (tools, resources, prompts)
+
+The server registers all three MCP primitives in `src/main.ts`:
+- **11 tools** covering current conditions, forecasts (hourly/daily/minutely), air quality, weather alerts, and location services. All tools use consistent error handling. A fresh `OpenWeatherAPI` client is created per request (in `src/utils/client-resolver.ts`) to avoid leaking location/units state between concurrent calls.
+- **1 resource** (`openweather://api/docs`) with server documentation.
+- **5 prompts** (user-invokable templates) that orchestrate the tools: `weather-briefing`, `what-to-wear`, `air-quality-check`, `trip-planner`, `severe-weather-watch`. Each `addPrompt.load` returns instruction text; they call tools, they do not fetch data themselves.
 
 ## Development Notes
 
-- Built with Bun runtime and TypeScript (ES2022 modules)
-- Uses `openweather-api-node` for OpenWeatherMap API integration
-- Session-based authentication prevents repeated API key validation
+- Built with Bun runtime and TypeScript (ES2022 target, NodeNext modules)
+- Uses `openweather-api-node` for OpenWeatherMap API integration (imported as a named export for NodeNext compatibility)
 - MCP Inspector configurations available for all transport modes
 - Comprehensive error handling with context-aware messages
 
 ## Version Management
 
-**IMPORTANT**: Keep the FastMCP server version in sync with package.json version.
-
-When updating the version:
-1. Update `package.json` version (done automatically by changesets)
-2. Manually update the FastMCP server version in `src/main.ts` line 29 to match
-3. Both versions must be identical for consistency
+The FastMCP server version is read from `package.json` at runtime
+(`src/main.ts`), so it stays in sync automatically. Changesets bumps
+`package.json` on release — no manual edits to `src/main.ts` are needed.

@@ -1,14 +1,6 @@
 import type { Units } from "../schemas.js";
 
 /**
- * Format temperature with unit symbol
- */
-export function formatTemperature(temp: number, units: Units = "metric"): string {
-  const unitSymbol = getTemperatureUnit(units);
-  return `${Math.round(temp)}°${unitSymbol}`;
-}
-
-/**
  * Get temperature unit symbol
  */
 export function getTemperatureUnit(units: Units = "metric"): string {
@@ -21,35 +13,6 @@ export function getTemperatureUnit(units: Units = "metric"): string {
     default:
       return "C";
   }
-}
-
-/**
- * Format wind speed with unit
- */
-export function formatWindSpeed(speed: number, units: Units = "metric"): string {
-  const unitSymbol = units === "imperial" ? "mph" : "m/s";
-  return `${speed.toFixed(1)} ${unitSymbol}`;
-}
-
-/**
- * Format humidity percentage
- */
-export function formatHumidity(humidity: number): string {
-  return `${humidity}%`;
-}
-
-/**
- * Format visibility in kilometers or miles
- */
-export function formatVisibility(visibility: number, units: Units = "metric"): string {
-  if (units === "imperial") {
-    // Convert meters to miles
-    const miles = visibility / 1609.34;
-    return `${miles.toFixed(1)} mi`;
-  }
-  // Convert meters to kilometers
-  const km = visibility / 1000;
-  return `${km.toFixed(1)} km`;
 }
 
 /**
@@ -69,17 +32,6 @@ export function formatDateTime(timestamp: number, timezone?: number): string {
 }
 
 /**
- * Format weather description
- */
-export function formatWeatherDescription(description: string): string {
-  // Capitalize first letter of each word
-  return description
-    .split(' ')
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
-
-/**
  * Convert wind direction degrees to compass direction
  */
 export function getWindDirection(degrees: number): string {
@@ -87,26 +39,6 @@ export function getWindDirection(degrees: number): string {
                      "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
   const index = Math.round((degrees % 360) / 22.5);
   return directions[index % 16];
-}
-
-/**
- * Format air quality index to human-readable description
- */
-export function formatAirQuality(aqi: number): string {
-  switch (aqi) {
-    case 1:
-      return "Good";
-    case 2:
-      return "Fair";
-    case 3:
-      return "Moderate";
-    case 4:
-      return "Poor";
-    case 5:
-      return "Very Poor";
-    default:
-      return "Unknown";
-  }
 }
 
 /**
@@ -143,7 +75,6 @@ export function formatCurrentWeather(data: any, units: Units = "metric"): string
 export function formatWeatherForecast(forecasts: any[], location: string, units: Units = "metric"): string {
   const forecastData = {
     location,
-    // TODO: Format this as TSV
     forecasts: forecasts.map((forecast, index) => ({
       day: index + 1,
       temperature: {

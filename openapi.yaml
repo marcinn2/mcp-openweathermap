@@ -11,7 +11,7 @@ servers:
     port:
       default: "3000"
 paths:
-  /stream:
+  /mcp:
     get:
       summary: Stream endpoint - GET method
       operationId: getStream

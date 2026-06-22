@@ -96,97 +96,6 @@ export const geocodeLocationSchema = z.object({
 });
 
 /**
- * Response Type Schemas (for validation and documentation)
- */
-
-// Weather condition schema
-export const weatherConditionSchema = z.object({
-  id: z.number(),
-  main: z.string(),
-  description: z.string(),
-  icon: z.string(),
-});
-
-// Temperature data schema
-export const temperatureSchema = z.object({
-  temp: z.number(),
-  feels_like: z.number(),
-  temp_min: z.number(),
-  temp_max: z.number(),
-  pressure: z.number(),
-  humidity: z.number(),
-});
-
-// Wind data schema
-export const windSchema = z.object({
-  speed: z.number(),
-  deg: z.number(),
-  gust: z.number().optional(),
-});
-
-// Current weather response schema
-export const currentWeatherResponseSchema = z.object({
-  coord: z.object({
-    lon: z.number(),
-    lat: z.number(),
-  }),
-  weather: z.array(weatherConditionSchema),
-  main: temperatureSchema,
-  wind: windSchema,
-  visibility: z.number(),
-  dt: z.number(),
-  timezone: z.number(),
-  name: z.string(),
-  cod: z.number(),
-});
-
-// Air quality component schema
-export const airQualityComponentSchema = z.object({
-  co: z.number(),
-  no: z.number(),
-  no2: z.number(),
-  o3: z.number(),
-  so2: z.number(),
-  pm2_5: z.number(),
-  pm10: z.number(),
-  nh3: z.number(),
-});
-
-// Air quality response schema
-export const airPollutionResponseSchema = z.object({
-  coord: z.object({
-    lon: z.number(),
-    lat: z.number(),
-  }),
-  list: z.array(z.object({
-    main: z.object({
-      aqi: z.number().min(1).max(5),
-    }),
-    components: airQualityComponentSchema,
-    dt: z.number(),
-  })),
-});
-
-// Geocoding result schema
-export const geocodingResultSchema = z.object({
-  name: z.string(),
-  local_names: z.record(z.string()).optional(),
-  lat: z.number(),
-  lon: z.number(),
-  country: z.string(),
-  state: z.string().optional(),
-});
-
-/**
- * Error Response Schema
- */
-export const errorResponseSchema = z.object({
-  error: z.string(),
-  message: z.string(),
-  code: z.string().optional(),
-});
-
-/**
  * Type Exports (for use in tools)
  */
 export type Units = z.infer<typeof unitsSchema>;
@@ -203,8 +112,3 @@ export type GetLocationInfoInput = z.infer<typeof getLocationInfoSchema>;
 export type GetOneCallWeatherInput = z.infer<typeof getOneCallWeatherSchema>;
 export type GetAirPollutionInput = z.infer<typeof getAirPollutionSchema>;
 export type GeocodeLocationInput = z.infer<typeof geocodeLocationSchema>;
-
-export type CurrentWeatherResponse = z.infer<typeof currentWeatherResponseSchema>;
-export type AirPollutionResponse = z.infer<typeof airPollutionResponseSchema>;
-export type GeocodingResult = z.infer<typeof geocodingResultSchema>;
-export type ErrorResponse = z.infer<typeof errorResponseSchema>;

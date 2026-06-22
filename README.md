@@ -49,10 +49,13 @@ cp .env.example .env
 ```
 
 Environment variables:
-- `OPENWEATHER_API_KEY` - Your OpenWeatherMap API key (required for stdio transport only)
+- `OPENWEATHER_API_KEY` - Your OpenWeatherMap API key (required for both transports; the server's upstream credential)
+- `MCP_AUTH_TOKEN` - Access token(s) required as a Bearer credential for HTTP transport (comma-separated for multiple; unset = open access)
 - `PORT` - Server port for HTTP transport (default: 3000)
 - `MCP_TRANSPORT` - Transport type: `stdio` or `httpStream` (default: stdio)
-- `MCP_ENDPOINT` - HTTP endpoint path (default: /stream)
+- `HOST` - Bind address for HTTP transport (default: `0.0.0.0`, i.e. all interfaces)
+- `MCP_ENDPOINT` - Streamable HTTP endpoint path (default: /mcp)
+- `CORS_ORIGIN` - Comma-separated allowed origins for HTTP transport (default: `*`)
 
 ## Usage
 
@@ -67,6 +70,25 @@ bun run src/main.ts
 ```bash
 MCP_TRANSPORT=httpStream PORT=3000 bun run src/main.ts
 ```
+
+#### HTTP Endpoints
+
+When running with `MCP_TRANSPORT=httpStream`, the server exposes the following
+endpoints (default `PORT=3000`):
+
+| Endpoint | Methods | Description |
+|----------|---------|-------------|
+| `/mcp` (configurable via `MCP_ENDPOINT`) | `GET`, `POST` | **Streamable HTTP** transport — the recommended MCP transport. `POST` sends client→server messages; `GET` opens a server→client SSE stream. Responses are streamed using `text/event-stream`. |
+| `/sse` | `GET` | **Legacy HTTP+SSE** transport, auto-mounted for backward compatibility. This path is fixed and is **not** affected by `MCP_ENDPOINT`. |
+| `/health` | `GET` | Health check, returns `200 OK`. |
+
+Notes:
+- Streamable HTTP and the legacy SSE transport are served simultaneously. Point
+  modern clients at `/mcp` and legacy SSE clients at `/sse`.
+- A `GET` to `/mcp` requires a valid `mcp-session-id` obtained from a prior
+  `initialize` call; without one it returns `400`.
+- `MCP_ENDPOINT` only relocates the Streamable HTTP endpoint. The `/sse` and
+  `/health` paths are fixed.
 
 ### Claude Desktop Configuration
 
@@ -105,6 +127,23 @@ Add this configuration to your Claude Desktop MCP settings:
 - `geocode-location` - Convert addresses to coordinates
 - `get-onecall-weather` - Comprehensive weather data
 
+## Prompts
+
+In addition to tools, the server exposes user-invokable **prompts** — ready-made
+templates (usually surfaced as slash commands) that combine the tools above to
+answer common questions. Discover them via `prompts/list`; fetch one with
+`prompts/get`.
+
+| Prompt | Arguments | What it does |
+|--------|-----------|--------------|
+| `weather-briefing` | `location*`, `units` | Current conditions, the next few days, and any active alerts |
+| `what-to-wear` | `location*`, `units` | Clothing recommendation from current + hourly conditions |
+| `air-quality-check` | `location*` | Air quality with practical health guidance |
+| `trip-planner` | `destination*`, `days`, `units` | Multi-day outlook to plan a trip |
+| `severe-weather-watch` | `location*` | Alerts plus the detailed OneCall picture |
+
+`*` = required argument. `units` accepts `metric`, `imperial`, or `standard`.
+
 ## Development
 
 ### Running in Development
@@ -114,7 +153,7 @@ bun run src/main.ts
 
 ### Testing with MCP Inspector
 ```bash
-bun run src/main.ts
+bun run inspect
 ```
 
 Then connect the MCP Inspector to test the tools interactively.
@@ -126,9 +165,37 @@ bun run build
 
 ## Authentication
 
-**Stdio Transport:** Requires `OPENWEATHER_API_KEY` environment variable.
+Two credentials are kept separate:
 
-**HTTP Transport:** The OpenWeatherMap API key is passed as a bearer token in the HTTP request headers. No environment variable needed.
+- **OpenWeatherMap API key** (`OPENWEATHER_API_KEY`) — the server's own upstream
+  credential, used to call OpenWeatherMap. It is always server-side and is never
+  sent by clients.
+- **Access token** (`MCP_AUTH_TOKEN`) — the Bearer credential that gates access
+  to the MCP server itself. It is unrelated to OpenWeatherMap.
+
+**Stdio Transport:** Uses the `OPENWEATHER_API_KEY` environment variable. No
+access token applies.
+
+**HTTP Stream Transport:** When `MCP_AUTH_TOKEN` is set, each request must carry
+a matching access token:
+
+```http
+Authorization: Bearer <your-mcp-access-token>
+```
+
+Requests with a missing or invalid token receive a `401 Unauthorized` response.
+You can configure multiple tokens (comma-separated in `MCP_AUTH_TOKEN`) to give
+different clients distinct credentials. If `MCP_AUTH_TOKEN` is **unset**, token
+authentication is disabled and the HTTP endpoint is open — set it for any
+network-exposed deployment.
+
+### CORS
+
+The HTTP stream transport sends CORS headers so browser-based MCP clients can
+connect. By default all origins are allowed (`*`); restrict them with the
+`CORS_ORIGIN` environment variable (comma-separated). The `Authorization`,
+`Content-Type`, `Mcp-Session-Id`, `Mcp-Protocol-Version`, and `Last-Event-ID`
+request headers are allowed, and `Mcp-Session-Id` is exposed to clients.
 
 ## Contributing
 

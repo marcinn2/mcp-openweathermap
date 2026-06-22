@@ -1,0 +1,37 @@
+# Optional ingress (example uses the NGINX ingress controller).
+#
+# The MCP HTTP stream transport uses long-lived, unbuffered SSE responses, so
+# response buffering must be off and read/send timeouts must be generous.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mcp-openweathermap
+  namespace: mcp-openweathermap
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # For more than one replica, enable cookie-based sticky sessions so a client
+    # stays on the same pod (the transport keeps session state in memory):
+    # nginx.ingress.kubernetes.io/affinity: "cookie"
+    # nginx.ingress.kubernetes.io/affinity-mode: "persistent"
+    # nginx.ingress.kubernetes.io/session-cookie-name: "mcp-owm"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: mcp-openweathermap.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mcp-openweathermap
+                port:
+                  number: 80
+  # Enable TLS by provisioning a certificate (e.g. via cert-manager) and
+  # referencing its Secret here:
+  # tls:
+  #   - hosts:
+  #       - mcp-openweathermap.example.com
+  #     secretName: mcp-openweathermap-tls

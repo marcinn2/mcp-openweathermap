@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-openweathermap
+  namespace: mcp-openweathermap
+  labels:
+    app: mcp-openweathermap
+spec:
+  # Keep at 1 unless you enable sticky sessions: the stateful HTTP stream
+  # transport keeps per-session state in memory, so a client must keep hitting
+  # the same pod. See docs/README.md ("Scaling").
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mcp-openweathermap
+  template:
+    metadata:
+      labels:
+        app: mcp-openweathermap
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        # Matches the appuser/appgroup baked into the Dockerfile (uid/gid 10014).
+        runAsUser: 10014
+        runAsGroup: 10014
+        fsGroup: 10014
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mcp-openweathermap
+          # Placeholder image — build and push your own, e.g.:
+          #   docker build -t ghcr.io/<owner>/mcp-openweathermap:latest .
+          #   docker push   ghcr.io/<owner>/mcp-openweathermap:latest
+          image: ghcr.io/robertn702/mcp-openweathermap:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: mcp-openweathermap-config
+          env:
+            # Upstream OpenWeatherMap credential (required server-side).
+            - name: OPENWEATHER_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: mcp-openweathermap-secret
+                  key: OPENWEATHER_API_KEY
+            # Access token clients must present. Optional: omit the Secret key to
+            # leave the endpoint open (token auth disabled).
+            - name: MCP_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: mcp-openweathermap-secret
+                  key: MCP_AUTH_TOKEN
+                  optional: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: "500m"
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            # Left false because Bun writes a transpile cache at runtime. To
+            # tighten this, set true and mount writable emptyDir volumes for
+            # /tmp and the Bun cache directory.
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL

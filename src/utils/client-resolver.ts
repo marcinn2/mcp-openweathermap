@@ -1,14 +1,18 @@
-import OpenWeatherAPI from "openweather-api-node";
+import { OpenWeatherAPI } from "openweather-api-node";
 import type { SessionData } from "../auth/types.js";
 import { getStdioSession } from "../auth/stdio.js";
 import { parseLocation } from "./location-parser.js";
 import type { Units } from "../schemas.js";
 
-// Cache of OpenWeatherAPI clients by API key
-const clientCache = new Map<string, OpenWeatherAPI>();
-
 /**
- * Get or create an OpenWeatherAPI client for the given session
+ * Create an OpenWeatherAPI client for the given session
+ *
+ * A fresh client is returned for every request. The client holds mutable
+ * per-request state (location and units), so sharing a cached instance across
+ * tool calls would leak state between requests and race under HTTP transport
+ * where calls run concurrently. Construction performs no network I/O, so this
+ * is cheap.
+ *
  * @param session - Session data from HTTP auth, or null/undefined for stdio
  * @returns Configured OpenWeatherAPI client
  */
@@ -20,24 +24,11 @@ export function getOpenWeatherClient(session: SessionData | null | undefined): O
     throw new Error("No authentication session available");
   }
 
-  const { apiKey } = effectiveSession;
-
-  // Check cache first
-  let client = clientCache.get(apiKey);
-  
-  if (!client) {
-    // Create new client
-    client = new OpenWeatherAPI({
-      key: apiKey,
-      // Default to metric units, can be overridden per request
-      units: "metric"
-    });
-
-    // Cache the client
-    clientCache.set(apiKey, client);
-  }
-
-  return client;
+  return new OpenWeatherAPI({
+    key: effectiveSession.apiKey,
+    // Default to metric units, can be overridden per request
+    units: "metric",
+  });
 }
 
 /**
@@ -67,13 +58,6 @@ export function configureClientForLocation(
   if (units) {
     client.setUnits(units);
   }
-  
-  return client;
-}
 
-/**
- * Clear the client cache (useful for testing)
- */
-export function clearClientCache(): void {
-  clientCache.clear();
+  return client;
 }
